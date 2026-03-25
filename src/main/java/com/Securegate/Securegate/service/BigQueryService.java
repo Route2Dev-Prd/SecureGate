@@ -1,12 +1,13 @@
 package com.Securegate.Securegate.service;
 
-import com.Securegate.Securegate.model.User;
-import com.google.cloud.bigquery.*;
+import com.Securegate.Securegate.dto.LoginRequest;
+import com.Securegate.Securegate.dto.RegisterRequest;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.bigquery.*;
 
-import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
 import java.util.HashMap;
@@ -18,56 +19,72 @@ public class BigQueryService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    public String registerUser(User user) {
+    private BigQuery getBigQuery() throws Exception {
+        InputStream credentialsStream =
+                getClass().getClassLoader().getResourceAsStream("securegateauth.json");
 
-        if (user.getName() == null || user.getName().isEmpty()) {
+        GoogleCredentials credentials = GoogleCredentials.fromStream(credentialsStream);
+
+        return BigQueryOptions.newBuilder()
+                .setCredentials(credentials)
+                .build()
+                .getService();
+    }
+
+    // ========================= REGISTER =========================
+    public String registerUser(RegisterRequest request) {
+
+        if (request.getName() == null || request.getName().isEmpty()) {
             return "Name is required";
         }
 
-        if (user.getEmail() == null || user.getEmail().isEmpty()) {
+        if (request.getEmail() == null || request.getEmail().isEmpty()) {
             return "Email is required";
         }
 
-        if (user.getPassword() == null || user.getPassword().isEmpty()) {
+        if (request.getPassword() == null || request.getPassword().isEmpty()) {
             return "Password is required";
         }
 
-        if (!user.getPassword().equals(user.getConfirmPassword())) {
-            return "Password and Confirm Password must match";
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            return "Password mismatch";
         }
 
         String regex = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&]).{8,}$";
 
-        if (!user.getPassword().matches(regex)) {
-            return "Password must contain uppercase, lowercase, number and special character";
+        if (!request.getPassword().matches(regex)) {
+            return "Weak password";
         }
 
         try {
 
-            // 🔐 Load credentials JSON
-            InputStream credentialsStream =
-                    getClass().getClassLoader().getResourceAsStream("securegateauth.json");
-
-            GoogleCredentials credentials =
-                    GoogleCredentials.fromStream(credentialsStream);
-
-            BigQuery bigquery = BigQueryOptions.newBuilder()
-                    .setCredentials(credentials)
-                    .build()
-                    .getService();
+            BigQuery bigquery = getBigQuery();
 
             String datasetName = "securegate_auth";
             String tableName = "Users";
 
-            String hashedPassword = passwordEncoder.encode(user.getPassword());
+            // 🔹 Check if email already exists
+            String checkQuery = "SELECT Email FROM `securegate_auth.Users` WHERE Email='"
+                    + request.getEmail() + "' LIMIT 1";
+
+            TableResult checkResult = bigquery.query(
+                    QueryJobConfiguration.newBuilder(checkQuery).build()
+            );
+
+            if (checkResult.getTotalRows() > 0) {
+                return "User already exists";
+            }
+
+            // 🔹 Hash password
+            String hashedPassword = passwordEncoder.encode(request.getPassword());
 
             Map<String, Object> row = new HashMap<>();
-            row.put("Name", user.getName());
-            row.put("Email", user.getEmail());
+            row.put("Name", request.getName());
+            row.put("Email", request.getEmail());
             row.put("Password", hashedPassword);
-            row.put("Age", user.getAge());
-            row.put("Height", user.getHeight());
-            row.put("Weight", user.getWeight());
+            row.put("Age", request.getAge());
+            row.put("Height", request.getHeight());
+            row.put("Weight", request.getWeight());
 
             InsertAllResponse response = bigquery.insertAll(
                     InsertAllRequest.newBuilder(datasetName, tableName)
@@ -76,14 +93,55 @@ public class BigQueryService {
             );
 
             if (response.hasErrors()) {
-                return "Error inserting data into BigQuery";
+                return "Error inserting data";
             }
 
             return "User Registered Successfully";
 
         } catch (Exception e) {
             e.printStackTrace();
-            return "Error connecting to BigQuery";
+            return "Error during registration";
+        }
+    }
+
+    // ========================= LOGIN =========================
+    public String loginUser(LoginRequest request) {
+
+        if (request.getEmail() == null || request.getEmail().isEmpty()) {
+            return "Email required";
+        }
+
+        if (request.getPassword() == null || request.getPassword().isEmpty()) {
+            return "Password required";
+        }
+
+        try {
+
+            BigQuery bigquery = getBigQuery();
+
+            String query = "SELECT * FROM `securegate_auth.Users` WHERE Email='"
+                    + request.getEmail() + "' LIMIT 1";
+
+            TableResult result = bigquery.query(
+                    QueryJobConfiguration.newBuilder(query).build()
+            );
+
+            for (FieldValueList row : result.iterateAll()) {
+
+                String storedPassword = row.get("Password").getStringValue();
+
+                if (passwordEncoder.matches(request.getPassword(), storedPassword)) {
+                    return "Login Successful";
+                } else {
+                    return "Invalid Password";
+                }
+            }
+
+            return "User Not Found";
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "Error during login";
         }
     }
 }

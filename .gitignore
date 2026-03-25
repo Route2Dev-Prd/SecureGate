@@ -33,3 +33,10 @@ build/
 .vscode/
 *.json
 gcp_keys/
+target/
+*.jar
+*.war
+*.ear
+.idea/
+*.iml
+*.class
