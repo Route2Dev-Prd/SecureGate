@@ -2,6 +2,7 @@ package com.Securegate.Securegate.service;
 
 import com.Securegate.Securegate.dto.LoginRequest;
 import com.Securegate.Securegate.dto.RegisterRequest;
+import com.Securegate.Securegate.dto.UserResponse;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.bigquery.*;
 
@@ -19,6 +20,7 @@ public class BigQueryService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    // ========================= COMMON BIGQUERY CONNECTION =========================
     private BigQuery getBigQuery() throws Exception {
         InputStream credentialsStream =
                 getClass().getClassLoader().getResourceAsStream("securegateauth.json");
@@ -63,7 +65,7 @@ public class BigQueryService {
             String datasetName = "securegate_auth";
             String tableName = "Users";
 
-            // 🔹 Check if email already exists
+            // 🔹 Check if user already exists
             String checkQuery = "SELECT Email FROM `securegate_auth.Users` WHERE Email='"
                     + request.getEmail() + "' LIMIT 1";
 
@@ -142,6 +144,45 @@ public class BigQueryService {
         } catch (Exception e) {
             e.printStackTrace();
             return "Error during login";
+        }
+    }
+
+    // ========================= GET USER DETAILS =========================
+    public UserResponse getUserDetails(String email) {
+
+        if (email == null || email.isEmpty()) {
+            return null;
+        }
+
+        try {
+
+            BigQuery bigquery = getBigQuery();
+
+            String query = "SELECT Name, Email, Age, Height, Weight FROM `securegate_auth.Users` WHERE Email='"
+                    + email + "' LIMIT 1";
+
+            TableResult result = bigquery.query(
+                    QueryJobConfiguration.newBuilder(query).build()
+            );
+
+            for (FieldValueList row : result.iterateAll()) {
+
+                UserResponse user = new UserResponse();
+
+                user.setName(row.get("Name").getStringValue());
+                user.setEmail(row.get("Email").getStringValue());
+                user.setAge((int) row.get("Age").getLongValue());
+                user.setHeight(row.get("Height").getDoubleValue());
+                user.setWeight(row.get("Weight").getDoubleValue());
+
+                return user;
+            }
+
+            return null;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
         }
     }
 }

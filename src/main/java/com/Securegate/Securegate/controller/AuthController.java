@@ -2,7 +2,7 @@ package com.Securegate.Securegate.controller;
 
 import com.Securegate.Securegate.dto.LoginRequest;
 import com.Securegate.Securegate.dto.RegisterRequest;
-import com.Securegate.Securegate.model.User;
+import com.Securegate.Securegate.dto.UserResponse;
 import com.Securegate.Securegate.service.BigQueryService;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,13 +15,21 @@ public class AuthController {
     @Autowired
     private BigQueryService service;
 
+    // ================= REGISTER =================
     @PostMapping("/register")
     public String register(@RequestBody RegisterRequest request) {
         return service.registerUser(request);
     }
 
+    // ================= LOGIN =================
     @PostMapping("/login")
     public String login(@RequestBody LoginRequest request) {
         return service.loginUser(request);
+    }
+
+    // ================= GET USER =================
+    @GetMapping("/user")
+    public UserResponse getUser(@RequestParam String email) {
+        return service.getUserDetails(email);
     }
 }
