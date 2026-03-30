@@ -1,4 +1,4 @@
-name: Deploy Securegate to Cloud Run
+name: Securegate CI/CD Workflow
 
 on:
   push:
@@ -20,7 +20,6 @@ jobs:
 
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - name: Checkout Code
@@ -45,9 +44,11 @@ jobs:
 
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GAR_REGION }}-docker.pkg.dev
+        run: gcloud auth configure-docker ${{ env.GAR_REGION }}-docker.pkg.dev --quiet
 
       - name: Build Docker Image
         run: |
@@ -62,5 +63,6 @@ jobs:
           gcloud run deploy ${{ env.SERVICE }} \
             --image ${{ env.GAR_REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE }}:${{ github.sha }} \
             --region ${{ env.RUN_REGION }} \
+            --project ${{ env.PROJECT_ID }} \
             --platform managed \
             --allow-unauthenticated
