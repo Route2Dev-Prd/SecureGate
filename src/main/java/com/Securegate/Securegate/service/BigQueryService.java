@@ -2,6 +2,7 @@ package com.Securegate.Securegate.service;
 
 import com.Securegate.Securegate.dto.LoginRequest;
 import com.Securegate.Securegate.dto.RegisterRequest;
+import com.Securegate.Securegate.dto.UpdatePasswordRequest;
 import com.Securegate.Securegate.dto.UserResponse;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.bigquery.*;
@@ -183,6 +184,64 @@ public class BigQueryService {
         } catch (Exception e) {
             e.printStackTrace();
             return null;
+        }
+    }
+    // ================= UPDATE PASSWORD =================
+    public String updatePassword(UpdatePasswordRequest request) {
+
+        if (request.getEmail() == null || request.getEmail().isEmpty()) {
+            return "Email required";
+        }
+
+        if (request.getOldPassword() == null || request.getOldPassword().isEmpty()) {
+            return "Old password required";
+        }
+
+        if (request.getNewPassword() == null || request.getNewPassword().isEmpty()) {
+            return "New password required";
+        }
+
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            return "Password mismatch";
+        }
+
+        try {
+
+            BigQuery bigquery = getBigQuery();
+
+            String query = "SELECT * FROM `securegate_auth.Users` WHERE Email='"
+                    + request.getEmail() + "' LIMIT 1";
+
+            TableResult result = bigquery.query(
+                    QueryJobConfiguration.newBuilder(query).build()
+            );
+
+            for (FieldValueList row : result.iterateAll()) {
+
+                String storedPassword = row.get("Password").getStringValue();
+
+                // 🔐 old password verify
+                if (!passwordEncoder.matches(request.getOldPassword(), storedPassword)) {
+                    return "Old password is incorrect";
+                }
+
+                // 🔐 new password hash
+                String newHashedPassword = passwordEncoder.encode(request.getNewPassword());
+
+                // 🔹 UPDATE QUERY
+                String updateQuery = "UPDATE `securegate_auth.Users` SET Password='"
+                        + newHashedPassword + "' WHERE Email='" + request.getEmail() + "'";
+
+                bigquery.query(QueryJobConfiguration.newBuilder(updateQuery).build());
+
+                return "Password updated successfully";
+            }
+
+            return "User not found";
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "Error updating password";
         }
     }
 }
