@@ -1,13 +1,18 @@
 package com.Securegate.Securegate.service;
 
+import com.Securegate.Securegate.dto.ForgetPasswordRequest;
+import com.Securegate.Securegate.dto.ResetPasswordRequest;
 import com.Securegate.Securegate.dto.LoginRequest;
 import com.Securegate.Securegate.dto.RegisterRequest;
 import com.Securegate.Securegate.dto.UpdatePasswordRequest;
 import com.Securegate.Securegate.dto.UserResponse;
+import com.Securegate.Securegate.helper.OTPstore;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.bigquery.*;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -186,7 +191,8 @@ public class BigQueryService {
             return null;
         }
     }
-    // ================= UPDATE PASSWORD =================
+
+    // ========================= UPDATE PASSWORD =========================
     public String updatePassword(UpdatePasswordRequest request) {
 
         if (request.getEmail() == null || request.getEmail().isEmpty()) {
@@ -242,6 +248,114 @@ public class BigQueryService {
         } catch (Exception e) {
             e.printStackTrace();
             return "Error updating password";
+        }
+    }
+
+    // ========================= FORGOT PASSWORD =========================
+    public String forgotPassword(ForgetPasswordRequest request, OTPstore otpStore, JavaMailSender mailSender) {
+
+        if (request.getEmail() == null || request.getEmail().isEmpty()) {
+            return "Email required";
+        }
+
+        try {
+            BigQuery bigquery = getBigQuery();
+
+            // 🔹 Check user exists
+            String checkQuery = "SELECT Email FROM `securegate_auth.Users` WHERE Email='"
+                    + request.getEmail() + "' LIMIT 1";
+
+            TableResult result = bigquery.query(
+                    QueryJobConfiguration.newBuilder(checkQuery).build()
+            );
+
+            if (result.getTotalRows() == 0) {
+                return "User not found";
+            }
+
+            // ---- STEP 1: Only email provided → Send OTP ----
+            if (request.getOtp() == null || request.getOtp().isEmpty()) {
+
+                String otp = String.valueOf((int)(Math.random() * 900000) + 100000);
+                otpStore.saveOtp(request.getEmail(), otp);
+
+                SimpleMailMessage message = new SimpleMailMessage();
+                message.setTo(request.getEmail());
+                message.setSubject("SecureGate - Password Reset OTP");
+                message.setText("Your OTP for password reset is: " + otp
+                        + "\n\nThis OTP is valid for 10 minutes.");
+                mailSender.send(message);
+
+                return "OTP sent to " + request.getEmail();
+            }
+
+            // ---- STEP 2: OTP + new password provided → Reset Password ----
+            if (request.getNewPassword() == null || request.getNewPassword().isEmpty()) {
+                return "New password required";
+            }
+
+            if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+                return "Password mismatch";
+            }
+
+            if (!otpStore.validateOtp(request.getEmail(), request.getOtp())) {
+                return "Invalid or expired OTP";
+            }
+
+            // 🔐 Hash new password
+            String newHashedPassword = passwordEncoder.encode(request.getNewPassword());
+
+            // 🔹 UPDATE QUERY
+            String updateQuery = "UPDATE `securegate_auth.Users` SET Password='"
+                    + newHashedPassword + "' WHERE Email='" + request.getEmail() + "'";
+
+            bigquery.query(QueryJobConfiguration.newBuilder(updateQuery).build());
+
+            // 🔹 Clear OTP
+            otpStore.clearOtp(request.getEmail());
+
+            return "Password reset successfully";
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "Error in forgot password";
+        }
+    }
+    public String resetPassword(ResetPasswordRequest request, OTPstore otpStore) {
+
+        if (request.getEmail() == null || request.getEmail().isEmpty()) {
+            return "Email required";
+        }
+        if (request.getOtp() == null || request.getOtp().isEmpty()) {
+            return "OTP required";
+        }
+        if (request.getNewPassword() == null || request.getNewPassword().isEmpty()) {
+            return "New password required";
+        }
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            return "Password mismatch";
+        }
+        if (!otpStore.validateOtp(request.getEmail(), request.getOtp())) {
+            return "Invalid or expired OTP";
+        }
+
+        try {
+            BigQuery bigquery = getBigQuery();
+
+            String newHashedPassword = passwordEncoder.encode(request.getNewPassword());
+
+            String updateQuery = "UPDATE `securegate_auth.Users` SET Password='"
+                    + newHashedPassword + "' WHERE Email='" + request.getEmail() + "'";
+
+            bigquery.query(QueryJobConfiguration.newBuilder(updateQuery).build());
+
+            otpStore.clearOtp(request.getEmail());
+
+            return "Password reset successfully";
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "Error resetting password";
         }
     }
 }
